@@ -1,0 +1,1236 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>계절근로자 관리 시스템</title>
+    <!-- Bootstrap 5 & Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- FullCalendar -->
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Supabase & SheetJS -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        :root {
+            --bg-main: #f8fafc;
+            --sidebar-bg: #0f172a;
+            --card-border: #e2e8f0;
+            --text-dark: #1e293b;
+            --text-muted: #64748b;
+        }
+        body { background-color: var(--bg-main); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 0.88rem; color: var(--text-dark); }
+        .sidebar { height: 100vh; background-color: var(--sidebar-bg); color: #fff; padding-top: 24px; position: fixed; width: 220px; z-index: 100; }
+        .sidebar .brand-title { font-size: 1.05rem; font-weight: 700; padding: 0 20px 24px; border-bottom: 1px solid #1e293b; }
+        .sidebar a { color: #94a3b8; text-decoration: none; padding: 10px 16px; display: flex; align-items: center; font-weight: 500; border-radius: 6px; margin: 4px 12px; transition: all 0.15s ease; }
+        .sidebar a:hover, .sidebar a.active { background-color: #1e293b; color: #ffffff; }
+        .main-content { margin-left: 220px; padding: 28px 36px; }
+        .card-custom { background: #ffffff; border: 1px solid var(--card-border); border-radius: 8px; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03); }
+        .stat-card { padding: 16px 18px; }
+        .stat-card .stat-label { font-size: 0.76rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
+        .stat-card .stat-value { font-size: 1.5rem; font-weight: 700; margin-top: 4px; color: var(--text-dark); }
+        .stat-subtext { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
+        #calendar { background: white; padding: 18px; border-radius: 8px; border: 1px solid var(--card-border); min-height: 520px; }
+        .fc-event { cursor: pointer; }
+        .table-custom th { background-color: #f1f5f9; color: var(--text-muted); font-weight: 600; border-bottom: 1px solid var(--card-border); padding: 10px 12px; cursor: pointer; user-select: none; }
+        .table-custom th:hover { background-color: #e2e8f0; color: #0f172a; }
+        .table-custom td { padding: 10px 12px; vertical-align: middle; border-bottom: 1px solid #f1f5f9; }
+        .badge-subtle { font-weight: 600; padding: 4px 8px; border-radius: 4px; }
+        .badge-staying { background-color: #e6f4ea; color: #137333; }
+        .badge-ital { background-color: #fce8e6; color: #c5221f; }
+        .badge-done { background-color: #f1f3f4; color: #5f6368; }
+        .btn-minimal { background-color: #ffffff; border: 1px solid #cbd5e1; color: #334155; font-weight: 500; }
+        .btn-minimal:hover { background-color: #f8fafc; border-color: #94a3b8; }
+        .clickable-link { color: #0d6efd; text-decoration: underline; cursor: pointer; }
+        .clickable-link:hover { color: #0a58ca; }
+        .table-responsive { max-height: 540px; overflow-y: auto; }
+        .admin-only { display: none !important; }
+        .admin-active .admin-only { display: inline-block !important; }
+        .admin-active td .admin-only { display: inline-block !important; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <div class="brand-title"><i class="bi bi-grid-1x2-fill me-2 text-primary"></i>계절근로자 관리</div>
+    <div class="mt-3">
+        <a href="#" class="active" onclick="switchTab('dashboard', event)"><i class="bi bi-speedometer2 me-2"></i>대시보드 & 달력</a>
+        <a href="#" onclick="switchTab('workers', event)"><i class="bi bi-people me-2"></i>근로자 현황</a>
+        <a href="#" onclick="switchTab('accommodations', event)"><i class="bi bi-house-door me-2"></i>숙소 현황</a>
+        <a href="#" onclick="switchTab('stats', event)"><i class="bi bi-bar-chart me-2"></i>통계 분석 (요약표)</a>
+    </div>
+</div>
+
+<div class="main-content">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="fw-bold text-dark mb-1">외국인 계절근로자 관리 시스템</h4>
+            <span class="text-muted small">포천시 계절근로 현황 및 엑셀 요약 동기화 모니터링</span>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <button id="adminAuthBtn" class="btn btn-outline-danger btn-sm px-3" onclick="handleAdminAuth()">
+                <i class="bi bi-lock-fill me-1"></i> 관리자 로그인
+            </button>
+            <span id="adminBadge" class="badge bg-danger p-2" style="display:none;"><i class="bi bi-shield-check me-1"></i>관리자 모드</span>
+
+            <input type="file" id="excelFile" accept=".xlsx, .xls" style="display: none;" onclick="this.value=null;" onchange="handleExcelUpload(event)">
+            <button class="btn btn-minimal btn-sm px-3 admin-only" onclick="document.getElementById('excelFile').click()">
+                <i class="bi bi-upload me-1"></i> 엑셀 데이터 동기화
+            </button>
+            <span class="badge bg-dark px-2.5 py-2 fw-normal">2026년도</span>
+        </div>
+    </div>
+
+    <!-- 대시보드 요약 카드 -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-2">
+            <div class="card-custom stat-card">
+                <div class="stat-label">현재 총 체류 인원</div>
+                <div class="stat-value text-success" id="stat-staying">0</div>
+                <div class="stat-subtext" id="stat-gender-sub">남 - / 여 -</div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card-custom stat-card">
+                <div class="stat-label">배정 농가 수</div>
+                <div class="stat-value text-primary" id="stat-farms">0</div>
+                <div class="stat-subtext">총 고용주 수</div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card-custom stat-card">
+                <div class="stat-label">출국 임박 (D-30)</div>
+                <div class="stat-value text-warning" id="stat-urgent">0</div>
+                <div class="stat-subtext">30일 이내 출국 예정</div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card-custom stat-card">
+                <div class="stat-label">누적 이탈 인원</div>
+                <div class="stat-value text-danger" id="stat-ital">0</div>
+                <div class="stat-subtext">무단 이탈자</div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card-custom stat-card">
+                <div class="stat-label">출국 완료</div>
+                <div class="stat-value text-secondary" id="stat-completed">0</div>
+                <div class="stat-subtext">정상 귀국 완료</div>
+            </div>
+        </div>
+        <div class="col-md-2">
+            <div class="card-custom stat-card">
+                <div class="stat-label">등록 총 인원</div>
+                <div class="stat-value text-info" id="stat-total">0</div>
+                <div class="stat-subtext">전체 데이터 수</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 1. 대시보드 탭 -->
+    <div id="tab-dashboard">
+        <div class="row g-4">
+            <div class="col-lg-7">
+                <h6 class="fw-bold mb-3 text-secondary"><i class="bi bi-calendar3 me-2"></i>일정 달력 <small class="text-muted fw-normal fs-7">(날짜 클릭 시 해당 인원 확인)</small></h6>
+                <div id="calendar"></div>
+            </div>
+            <div class="col-lg-5">
+                <h6 class="fw-bold mb-3 text-secondary"><i class="bi bi-clock-history me-2"></i>출국 예정 임박 명단</h6>
+                <div class="card-custom p-0 table-responsive">
+                    <table class="table table-custom align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>근로자명</th>
+                                <th>배정농가</th>
+                                <th>연락처</th>
+                                <th>출국예정일</th>
+                                <th>D-Day</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dashboard-urgent-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. 근로자 현황 탭 -->
+    <div id="tab-workers" style="display: none;">
+        <div class="card-custom p-3 mb-3">
+            <div class="row g-2">
+                <div class="col-md-4">
+                    <input type="text" id="search-input" class="form-control form-control-sm" placeholder="이름, 국적, 농가명, 전화번호 검색..." oninput="filterWorkers()">
+                </div>
+                <div class="col-md-3">
+                    <select id="filter-country" class="form-select form-select-sm" onchange="filterWorkers()">
+                        <option value="">모든 국적</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <select id="filter-status" class="form-select form-select-sm" onchange="filterWorkers()">
+                        <option value="">전체 상태</option>
+                        <option value="체류중">체류중</option>
+                        <option value="이탈">이탈자</option>
+                        <option value="출국완료">출국완료</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <button class="btn btn-minimal btn-sm w-100" onclick="resetFilters()">필터 초기화</button>
+                </div>
+            </div>
+        </div>
+        <div class="card-custom table-responsive">
+            <table class="table table-custom align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th onclick="sortTable('worker_name')">이름 ↕</th>
+                        <th onclick="sortTable('country')">국적 ↕</th>
+                        <th onclick="sortTable('gender')">성별 ↕</th>
+                        <th onclick="sortTable('birth_date')">생년월일 ↕</th>
+                        <th onclick="sortTable('employer_name')">배정농가(고용주) ↕</th>
+                        <th>농가 연락처</th>
+                        <th onclick="sortTable('entry_date')">입국일자 ↕</th>
+                        <th onclick="sortTable('expected_departure_date')">출국 예정일 ↕</th>
+                        <th onclick="sortTable('status')">상태 ↕</th>
+                        <th class="admin-only">관리</th>
+                    </tr>
+                </thead>
+                <tbody id="worker-main-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 3. 숙소 현황 탭 -->
+    <div id="tab-accommodations" style="display: none;">
+        <div class="card-custom p-3 mb-3">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-10">
+                    <input type="text" id="search-acc-input" class="form-control form-control-sm" placeholder="농가주명, 전화번호, 숙소 주소 검색..." oninput="filterAccommodations()">
+                </div>
+                <div class="col-md-2 text-end">
+                    <span class="text-muted small">농가 행 클릭 시 수정 가능</span>
+                </div>
+            </div>
+        </div>
+        <div class="card-custom table-responsive">
+            <table class="table table-custom align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th onclick="sortAccommodation('farm_owner')">농가주명 ↕</th>
+                        <th onclick="sortAccommodation('phone')">연락처 ↕</th>
+                        <th onclick="sortAccommodation('accommodation_address')">숙소 주소 ↕</th>
+                        <th onclick="sortAccommodation('farm_address')">농지 주소 ↕</th>
+                        <th onclick="sortAccommodation('worker_count')">배정 근로자 수 ↕</th>
+                        <th class="admin-only">관리</th>
+                    </tr>
+                </thead>
+                <tbody id="acc-main-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 4. 통계 탭 -->
+    <div id="tab-stats" style="display: none;">
+        <div class="card-custom p-4 mb-4">
+            <h6 class="fw-bold mb-3 text-secondary"><i class="bi bi-table me-2"></i>외국인 계절근로자 운영 현황 요약표 (엑셀 연동)</h6>
+            <div class="table-responsive">
+                <table class="table table-bordered table-custom align-middle text-center mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>국적</th>
+                            <th>성별</th>
+                            <th>입국 인원</th>
+                            <th>이탈 인원</th>
+                            <th>출국 인원</th>
+                            <th>현재 인원 (체류중)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="summary-table-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="row g-4">
+            <div class="col-md-6">
+                <div class="card-custom p-4">
+                    <h6 class="fw-bold mb-3 text-secondary">국적별 체류자 분포 도넛 차트</h6>
+                    <canvas id="countryChart" height="220"></canvas>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card-custom p-4">
+                    <h6 class="fw-bold mb-3 text-secondary">전체 등록 인원 체류 상태 막대 차트</h6>
+                    <canvas id="statusChart" height="220"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 모달창 영역들 -->
+<div class="modal fade" id="eventDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title fw-bold" id="eventDetailModalLabel">일정 상세</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body"><div class="table-responsive"><table class="table table-custom align-middle mb-0"><thead><tr><th>근로자명</th><th>배정 농가</th><th>연락처</th><th>국적</th><th>성별</th><th>생년월일</th><th>일정일자</th><th>상태</th></tr></thead><tbody id="modal-detail-tbody"></tbody></table></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="workerDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content"><div class="modal-header"><h6 class="modal-title fw-bold" id="workerDetailModalTitle">근로자 상세</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body" id="workerDetailModalBody"></div></div></div>
+</div>
+
+<div class="modal fade" id="employerDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg"><div class="modal-content"><div class="modal-header"><h6 class="modal-title fw-bold" id="employerDetailModalTitle">농가 상세</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body" id="employerDetailModalBody"></div></div></div>
+</div>
+
+<!-- 근로자 정보 수정 모달 -->
+<div class="modal fade" id="editWorkerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title fw-bold">근로자 정보 수정</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <form id="editWorkerForm">
+            <input type="hidden" id="edit-worker-id">
+            <div class="mb-2"><label class="form-label small mb-1">근로자 이름</label><input type="text" id="edit-worker-name" class="form-control form-control-sm" required></div>
+            <div class="row g-2 mb-2">
+                <div class="col-6"><label class="form-label small mb-1">국적</label><input type="text" id="edit-country" class="form-control form-control-sm"></div>
+                <div class="col-6"><label class="form-label small mb-1">성별</label><select id="edit-gender" class="form-select form-select-sm"><option value="M">남 (M)</option><option value="F">여 (F)</option></select></div>
+            </div>
+            <div class="mb-2"><label class="form-label small mb-1">생년월일</label><input type="date" id="edit-birth-date" class="form-control form-control-sm"></div>
+            <div class="mb-2">
+                <label class="form-label small mb-1">배정 고용주 (농가명 검색/입력)</label>
+                <input class="form-control form-control-sm" list="employerListOptions" id="edit-employer-input" placeholder="고용주 이름 검색...">
+                <datalist id="employerListOptions"></datalist>
+            </div>
+            <div class="mb-2"><label class="form-label small mb-1">체류 상태</label><select id="edit-status" class="form-select form-select-sm"><option value="체류중">체류중</option><option value="이탈">이탈</option><option value="출국완료">출국완료</option></select></div>
+            <div class="row g-2 mb-2">
+                <div class="col-6"><label class="form-label small mb-1">출국 예정일</label><input type="date" id="edit-expected-date" class="form-control form-control-sm"></div>
+                <div class="col-6"><label class="form-label small mb-1">이탈일자</label><input type="date" id="edit-abscond-date" class="form-control form-control-sm"></div>
+            </div>
+        </form>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button><button type="button" class="btn btn-primary btn-sm" onclick="confirmWorkerEdit()">저장</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- 고용주(농가) 정보 수정 모달 -->
+<div class="modal fade" id="editEmployerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h6 class="modal-title fw-bold">농가(고용주) 정보 수정</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <form id="editEmployerForm">
+            <input type="hidden" id="edit-employer-id">
+            <div class="mb-2"><label class="form-label small mb-1">농가주명</label><input type="text" id="edit-emp-owner" class="form-control form-control-sm" required></div>
+            <div class="mb-2"><label class="form-label small mb-1">연락처 (휴대폰)</label><input type="text" id="edit-emp-phone" class="form-control form-control-sm"></div>
+            <div class="mb-2"><label class="form-label small mb-1">숙소 주소</label><input type="text" id="edit-emp-acc-addr" class="form-control form-control-sm"></div>
+            <div class="mb-2"><label class="form-label small mb-1">농지 주소</label><input type="text" id="edit-emp-farm-addr" class="form-control form-control-sm"></div>
+        </form>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">취소</button><button type="button" class="btn btn-primary btn-sm" onclick="confirmEmployerEdit()">저장</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://bxaugvikitvhqilyyboj.supabase.co'; 
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ4YXVndmlraXR2aHFpbHl5Ym9qIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgzMTgxNDEsImV4cCI6MjEwMzg5NDE0MX0.CwZa5ijsHeI0HrztVFCa_BFumCNl7gfE4E58JeQB_Xw'; 
+const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let allWorkers = [];
+let allEmployers = [];
+let calendar = null;
+let isAdmin = false;
+
+let currentSortColumn = '';
+let isAscending = true;
+
+let currentAccSortColumn = '';
+let isAccAscending = true;
+
+document.addEventListener('DOMContentLoaded', async function() {
+    const calendarEl = document.getElementById('calendar');
+    if (calendarEl) {
+        calendar = new FullCalendar.Calendar(calendarEl, {
+            initialView: 'dayGridMonth',
+            locale: 'ko',
+            headerToolbar: { left: 'prev,next today', center: 'title', right: '' },
+            eventClick: function(info) {
+                showEventDetails(info.event.extendedProps.workers, info.event.title, info.event.startStr);
+            }
+        });
+        calendar.render();
+    }
+    await fetchWorkers();
+});
+
+function handleAdminAuth() {
+    if (isAdmin) {
+        isAdmin = false;
+        document.body.classList.remove('admin-active');
+        document.getElementById('adminAuthBtn').style.display = 'inline-block';
+        document.getElementById('adminBadge').style.display = 'none';
+        filterWorkers();
+        filterAccommodations();
+        alert('관리자 모드가 해제되었습니다.');
+        return;
+    }
+    const inputPw = prompt('관리자 비밀번호를 입력하세요:');
+    if (inputPw === '6888') {
+        isAdmin = true;
+        document.body.classList.add('admin-active');
+        document.getElementById('adminAuthBtn').style.display = 'none';
+        document.getElementById('adminBadge').style.display = 'inline-block';
+        filterWorkers();
+        filterAccommodations();
+        alert('🔑 관리자 모드로 전환되었습니다.');
+    } else if (inputPw !== null) {
+        alert('비밀번호가 올바르지 않습니다.');
+    }
+}
+
+function switchTab(tabName, eventObj) {
+    document.querySelectorAll('.sidebar a').forEach(a => a.classList.remove('active'));
+    if (eventObj && eventObj.currentTarget) {
+        eventObj.currentTarget.classList.add('active');
+    }
+    
+    document.getElementById('tab-dashboard').style.display = tabName === 'dashboard' ? 'block' : 'none';
+    document.getElementById('tab-workers').style.display = tabName === 'workers' ? 'block' : 'none';
+    document.getElementById('tab-accommodations').style.display = tabName === 'accommodations' ? 'block' : 'none';
+    document.getElementById('tab-stats').style.display = tabName === 'stats' ? 'block' : 'none';
+    
+    if (tabName === 'stats') {
+        renderSummaryTable();
+        renderCharts();
+    }
+    if (tabName === 'accommodations') renderAccommodations();
+    if (tabName === 'dashboard' && calendar) {
+        setTimeout(() => calendar.updateSize(), 100);
+    }
+}
+
+function getDDay(targetDateStr) {
+    if (!targetDateStr) return null;
+    const target = new Date(targetDateStr);
+    if (isNaN(target.getTime())) return null;
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    target.setHours(0,0,0,0);
+    return Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+}
+
+async function fetchWorkers() {
+    try {
+        const { data: employers } = await _supabase.from('employers').select('*');
+        allEmployers = employers || [];
+        
+        const { data: workers } = await _supabase.from('workers').select('*, employers(*)').order('id', { ascending: true });
+        allWorkers = workers || [];
+
+        const countries = [...new Set(allWorkers.map(w => w.country).filter(Boolean))];
+        const countrySelect = document.getElementById('filter-country');
+        if (countrySelect) {
+            countrySelect.innerHTML = '<option value="">모든 국적</option>';
+            countries.forEach(c => countrySelect.innerHTML += `<option value="${c}">${c}</option>`);
+        }
+
+        renderDashboard();
+        filterWorkers();
+        filterAccommodations();
+    } catch (err) {
+        console.error('데이터 로딩 중 오류:', err);
+    }
+}
+
+function renderDashboard() {
+    const stayingWorkers = allWorkers.filter(w => w.status === '체류중');
+    const italWorkers = allWorkers.filter(w => w.status === '이탈');
+    const completedWorkers = allWorkers.filter(w => w.status === '출국완료');
+
+    const maleCount = stayingWorkers.filter(w => w.gender === 'M' || w.gender === '남').length;
+    const femaleCount = stayingWorkers.filter(w => w.gender === 'F' || w.gender === '여').length;
+    
+    const genderSubEl = document.getElementById('stat-gender-sub');
+    if (genderSubEl) genderSubEl.innerText = `남 ${maleCount} / 여 ${femaleCount}`;
+
+    const farmSet = new Set(stayingWorkers.map(w => w.employers ? w.employers.farm_owner : null).filter(Boolean));
+    const statFarmsEl = document.getElementById('stat-farms');
+    if (statFarmsEl) statFarmsEl.innerText = farmSet.size;
+
+    const urgentWorkers = stayingWorkers.map(w => ({ ...w, dday: getDDay(w.expected_departure_date) }))
+        .filter(w => w.dday !== null && w.dday <= 30 && w.dday >= 0).sort((a,b) => a.dday - b.dday);
+
+    const statStaying = document.getElementById('stat-staying');
+    const statUrgent = document.getElementById('stat-urgent');
+    const statItal = document.getElementById('stat-ital');
+    const statCompleted = document.getElementById('stat-completed');
+    const statTotal = document.getElementById('stat-total');
+
+    if (statStaying) statStaying.innerText = stayingWorkers.length;
+    if (statUrgent) statUrgent.innerText = urgentWorkers.length;
+    if (statItal) statItal.innerText = italWorkers.length;
+    if (statCompleted) statCompleted.innerText = completedWorkers.length;
+    if (statTotal) statTotal.innerText = allWorkers.length;
+
+    if (calendar) {
+        calendar.removeAllEvents();
+        const dateGroups = {};
+
+        allWorkers.forEach(w => {
+            let displayDate = null;
+            let eventType = 'expected';
+
+            if (w.status === '이탈' && w.abscond_date) {
+                displayDate = w.abscond_date;
+                eventType = 'ital';
+            } else if (w.status === '출국완료' && w.actual_departure_date) {
+                displayDate = w.actual_departure_date;
+                eventType = 'completed';
+            } else if (w.expected_departure_date && w.status === '체류중') {
+                displayDate = w.expected_departure_date;
+                eventType = 'expected';
+            }
+
+            if (displayDate && !isNaN(new Date(displayDate).getTime())) {
+                const key = `${displayDate}_${eventType}`;
+                if (!dateGroups[key]) dateGroups[key] = { date: displayDate, type: eventType, workers: [] };
+                dateGroups[key].workers.push(w);
+            }
+        });
+
+        Object.values(dateGroups).forEach(group => {
+            let title = '';
+            let color = '#3b82f6';
+            if (group.type === 'ital') { title = `⚠️ 이탈: ${group.workers.length}명`; color = '#ef4444'; }
+            else if (group.type === 'completed') { title = `✈️ 출국완료: ${group.workers.length}명`; color = '#64748b'; }
+            else { title = `🛫 출국예정: ${group.workers.length}명`; color = '#3b82f6'; }
+
+            calendar.addEvent({ title, start: group.date, color, extendedProps: { workers: group.workers } });
+        });
+    }
+
+    const urgentTbody = document.getElementById('dashboard-urgent-tbody');
+    if (urgentTbody) {
+        urgentTbody.innerHTML = '';
+        urgentWorkers.forEach(w => {
+            const farmName = w.employers ? w.employers.farm_owner : '미배정';
+            const phone = w.employers && w.employers.phone ? w.employers.phone : '-';
+            urgentTbody.innerHTML += `
+                <tr>
+                    <td><b class="clickable-link" onclick="showWorkerDetail(${w.id})">${w.worker_name}</b></td>
+                    <td><span class="clickable-link" onclick="showEmployerDetail(${w.employer_id})">${farmName}</span></td>
+                    <td>${phone}</td>
+                    <td>${w.expected_departure_date || '-'}</td>
+                    <td><span class="badge ${w.dday <= 7 ? 'bg-danger' : 'bg-warning text-dark'}">D-${w.dday}</span></td>
+                </tr>
+            `;
+        });
+    }
+}
+
+function renderSummaryTable() {
+    const tbody = document.getElementById('summary-table-tbody');
+    if (!tbody) return;
+
+    const countries = [...new Set(allWorkers.map(w => w.country).filter(Boolean))];
+    let html = '';
+
+    let totalEntry = 0, totalItal = 0, totalCompleted = 0, totalStaying = 0;
+    let totalMaleEntry = 0, totalMaleItal = 0, totalMaleCompleted = 0, totalMaleStaying = 0;
+    let totalFemaleEntry = 0, totalFemaleItal = 0, totalFemaleCompleted = 0, totalFemaleStaying = 0;
+
+    countries.forEach(country => {
+        const cWorkers = allWorkers.filter(w => w.country === country);
+        const mWorkers = cWorkers.filter(w => w.gender === 'M' || w.gender === '남');
+        const fWorkers = cWorkers.filter(w => w.gender === 'F' || w.gender === '여');
+
+        const calcStats = (arr) => {
+            const entry = arr.length;
+            const ital = arr.filter(w => w.status === '이탈').length;
+            const completed = arr.filter(w => w.status === '출국완료').length;
+            const staying = arr.filter(w => w.status === '체류중').length;
+            return { entry, ital, completed, staying };
+        };
+
+        const cStats = calcStats(cWorkers);
+        const mStats = calcStats(mWorkers);
+        const fStats = calcStats(fWorkers);
+
+        totalEntry += cStats.entry; totalItal += cStats.ital; totalCompleted += cStats.completed; totalStaying += cStats.staying;
+
+        html += `
+            <tr class="table-active fw-bold">
+                <td rowspan="3">${country}</td>
+                <td>합계</td>
+                <td>${cStats.entry}</td>
+                <td>${cStats.ital}</td>
+                <td>${cStats.completed}</td>
+                <td class="text-success">${cStats.staying}</td>
+            </tr>
+            <tr>
+                <td>남</td>
+                <td>${mStats.entry}</td>
+                <td>${mStats.ital}</td>
+                <td>${mStats.completed}</td>
+                <td>${mStats.staying}</td>
+            </tr>
+            <tr>
+                <td>여</td>
+                <td>${fStats.entry}</td>
+                <td>${fStats.ital}</td>
+                <td>${fStats.completed}</td>
+                <td>${fStats.staying}</td>
+            </tr>
+        `;
+    });
+
+    html += `
+        <tr class="table-dark text-white fw-bold">
+            <td colspan="2">합계</td>
+            <td>${totalEntry}</td>
+            <td>${totalItal}</td>
+            <td>${totalCompleted}</td>
+            <td>${totalStaying}</td>
+        </tr>
+    `;
+
+    tbody.innerHTML = html;
+}
+
+function showEventDetails(workers, title, dateStr) {
+    document.getElementById('eventDetailModalLabel').innerText = `[${dateStr}] ${title} 명단`;
+    const tbody = document.getElementById('modal-detail-tbody');
+    tbody.innerHTML = '';
+    workers.forEach(w => {
+        const farmName = w.employers ? w.employers.farm_owner : '미배정';
+        let statusBadge = `<span class="badge-subtle badge-staying">체류중</span>`;
+        if (w.status === '이탈') statusBadge = `<span class="badge-subtle badge-ital">이탈</span>`;
+        else if (w.status === '출국완료') statusBadge = `<span class="badge-subtle badge-done">출국완료</span>`;
+
+        tbody.innerHTML += `
+            <tr>
+                <td><b class="clickable-link" onclick="closeModalAndShowWorker(${w.id})">${w.worker_name}</b></td>
+                <td><span class="clickable-link" onclick="closeModalAndShowEmployer(${w.employer_id})">${farmName}</span></td>
+                <td>${w.employers?.phone || '-'}</td>
+                <td>${w.country || '-'}</td>
+                <td>${w.gender || '-'}</td>
+                <td>${w.birth_date || '-'}</td>
+                <td>${w.expected_departure_date || w.abscond_date || w.actual_departure_date || '-'}</td>
+                <td>${statusBadge}</td>
+            </tr>
+        `;
+    });
+    new bootstrap.Modal(document.getElementById('eventDetailModal')).show();
+}
+
+function closeModalAndShowWorker(id) { bootstrap.Modal.getInstance(document.getElementById('eventDetailModal'))?.hide(); showWorkerDetail(id); }
+function closeModalAndShowEmployer(id) { bootstrap.Modal.getInstance(document.getElementById('eventDetailModal'))?.hide(); showEmployerDetail(id); }
+
+function showWorkerDetail(workerId) {
+    const w = allWorkers.find(item => item.id === workerId);
+    if (!w) return;
+    const farmName = w.employers ? w.employers.farm_owner : '미배정';
+    
+    // 변경 이력 파싱 표시
+    let historyHtml = '<div class="text-muted small">변경 이력이 없습니다.</div>';
+    if (w.edit_history) {
+        try {
+            const historyArr = JSON.parse(w.edit_history);
+            if (historyArr.length > 0) {
+                historyHtml = `<ul class="list-group list-group-flush small">` + historyArr.map(h => `
+                    <li class="list-group-item bg-light px-2 py-1 mb-1 rounded border">
+                        <span class="text-muted">[${h.time}]</span> <b>${h.modifier || '관리자'}</b> 수정:<br>
+                        <span class="text-danger">기존: ${h.from}</span> → <span class="text-primary">변경: ${h.to}</span>
+                    </li>
+                `).join('') + `</ul>`;
+            }
+        } catch(e) { historyHtml = `<div class="small">${w.edit_history}</div>`; }
+    }
+
+    document.getElementById('workerDetailModalTitle').innerText = `${w.worker_name} 상세 정보`;
+    document.getElementById('workerDetailModalBody').innerHTML = `
+        <table class="table table-bordered table-sm mb-3">
+            <tr><th class="bg-light" style="width:30%;">이름</th><td><b>${w.worker_name}</b></td></tr>
+            <tr><th class="bg-light">국적</th><td>${w.country || '-'}</td></tr>
+            <tr><th class="bg-light">성별</th><td>${w.gender || '-'}</td></tr>
+            <tr><th class="bg-light">생년월일</th><td>${w.birth_date || '-'}</td></tr>
+            <tr><th class="bg-light">배정 농가</th><td><span class="clickable-link" onclick="switchWorkerToEmployer(${w.employer_id})">${farmName}</span></td></tr>
+            <tr><th class="bg-light">농가 연락처</th><td>${w.employers?.phone || '-'}</td></tr>
+            <tr><th class="bg-light">입국일자</th><td>${w.entry_date || '-'}</td></tr>
+            <tr><th class="bg-light">출국 예정일</th><td>${w.expected_departure_date || '-'}</td></tr>
+            <tr><th class="bg-light">이탈일자</th><td>${w.abscond_date || '-'}</td></tr>
+            <tr><th class="bg-light">실제 출국일자</th><td>${w.actual_departure_date || '-'}</td></tr>
+            <tr><th class="bg-light">상태</th><td>${w.status}</td></tr>
+        </table>
+        <h6 class="fw-bold text-dark mt-3 mb-2">변경 이력 내역</h6>
+        <div class="p-2 border rounded bg-white" style="max-height: 150px; overflow-y: auto;">
+            ${historyHtml}
+        </div>
+    `;
+    new bootstrap.Modal(document.getElementById('workerDetailModal')).show();
+}
+
+function switchWorkerToEmployer(id) { bootstrap.Modal.getInstance(document.getElementById('workerDetailModal'))?.hide(); showEmployerDetail(id); }
+
+function showEmployerDetail(employerId) {
+    const emp = allEmployers.find(e => e.id === employerId);
+    if (!emp) return;
+    const assignedWorkers = allWorkers.filter(w => w.employer_id === employerId);
+    document.getElementById('employerDetailModalTitle').innerText = `[농가] ${emp.farm_owner} 상세 정보`;
+    
+    // 고용주 변경 이력 파싱 표시
+    let historyHtml = '<div class="text-muted small">변경 이력이 없습니다.</div>';
+    if (emp.edit_history) {
+        try {
+            const historyArr = JSON.parse(emp.edit_history);
+            if (historyArr.length > 0) {
+                historyHtml = `<ul class="list-group list-group-flush small">` + historyArr.map(h => `
+                    <li class="list-group-item bg-light px-2 py-1 mb-1 rounded border">
+                        <span class="text-muted">[${h.time}]</span> <b>${h.modifier || '관리자'}</b> 수정:<br>
+                        <span class="text-danger">기존: ${h.from}</span> → <span class="text-primary">변경: ${h.to}</span>
+                    </li>
+                `).join('') + `</ul>`;
+            }
+        } catch(e) { historyHtml = `<div class="small">${emp.edit_history}</div>`; }
+    }
+
+    let workersHtml = assignedWorkers.length === 0 ? `<tr><td colspan="6" class="text-center text-muted">소속 근로자 없음</td></tr>` : 
+        assignedWorkers.map(w => `
+            <tr>
+                <td><b class="clickable-link" onclick="closeEmployerModalAndShowWorker(${w.id})">${w.worker_name}</b></td>
+                <td>${w.country || '-'}</td>
+                <td>${w.gender || '-'}</td>
+                <td>${w.birth_date || '-'}</td>
+                <td>${w.expected_departure_date || '-'}</td>
+                <td>${w.status}</td>
+            </tr>
+        `).join('');
+
+    document.getElementById('employerDetailModalBody').innerHTML = `
+        <table class="table table-bordered table-sm mb-3">
+            <tr><th class="bg-light" style="width:25%;">농가주</th><td><b>${emp.farm_owner}</b></td></tr>
+            <tr><th class="bg-light">연락처 (휴대폰)</th><td>${emp.phone || '-'}</td></tr>
+            <tr><th class="bg-light">숙소 주소</th><td>${emp.accommodation_address || '-'}</td></tr>
+            <tr><th class="bg-light">농지 주소</th><td>${emp.farm_address || '-'}</td></tr>
+        </table>
+        
+        <h6 class="fw-bold text-dark mt-3 mb-2">고용주 정보 변경 이력</h6>
+        <div class="p-2 border rounded bg-white mb-3" style="max-height: 120px; overflow-y: auto;">
+            ${historyHtml}
+        </div>
+
+        <h6 class="fw-bold text-dark mt-3 mb-2">소속 근로자 명단 (${assignedWorkers.length}명)</h6>
+        <div class="table-responsive" style="max-height: 200px;">
+            <table class="table table-custom align-middle mb-0">
+                <thead>
+                    <tr><th>이름</th><th>국적</th><th>성별</th><th>생년월일</th><th>출국예정일</th><th>상태</th></tr>
+                </thead>
+                <tbody>${workersHtml}</tbody>
+            </table>
+        </div>
+    `;
+    new bootstrap.Modal(document.getElementById('employerDetailModal')).show();
+}
+
+function closeEmployerModalAndShowWorker(id) { bootstrap.Modal.getInstance(document.getElementById('employerDetailModal'))?.hide(); showWorkerDetail(id); }
+
+function sortTable(column) {
+    if (currentSortColumn === column) {
+        isAscending = !isAscending;
+    } else {
+        currentSortColumn = column;
+        isAscending = true;
+    }
+
+    allWorkers.sort((a, b) => {
+        let valA, valB;
+        if (column === 'employer_name') {
+            valA = a.employers ? a.employers.farm_owner : '';
+            valB = b.employers ? b.employers.farm_owner : '';
+        } else {
+            valA = a[column] || '';
+            valB = b[column] || '';
+        }
+
+        if (valA < valB) return isAscending ? -1 : 1;
+        if (valA > valB) return isAscending ? 1 : -1;
+        return 0;
+    });
+
+    filterWorkers();
+}
+
+function sortAccommodation(column) {
+    if (currentAccSortColumn === column) {
+        isAccAscending = !isAccAscending;
+    } else {
+        currentAccSortColumn = column;
+        isAccAscending = true;
+    }
+
+    allEmployers.sort((a, b) => {
+        let valA, valB;
+        if (column === 'worker_count') {
+            valA = allWorkers.filter(w => w.employer_id === a.id && w.status === '체류중').length;
+            valB = allWorkers.filter(w => w.employer_id === b.id && w.status === '체류중').length;
+        } else {
+            valA = a[column] || '';
+            valB = b[column] || '';
+        }
+
+        if (valA < valB) return isAccAscending ? -1 : 1;
+        if (valA > valB) return isAccAscending ? 1 : -1;
+        return 0;
+    });
+
+    filterAccommodations();
+}
+
+function filterWorkers() {
+    const searchEl = document.getElementById('search-input');
+    const countryEl = document.getElementById('filter-country');
+    const statusEl = document.getElementById('filter-status');
+    
+    const search = searchEl ? searchEl.value.toLowerCase().trim() : '';
+    const cleanSearch = search.replace(/-/g, '');
+    const country = countryEl ? countryEl.value : '';
+    const status = statusEl ? statusEl.value : '';
+
+    const filtered = allWorkers.filter(w => {
+        const farmName = w.employers ? w.employers.farm_owner : '미배정';
+        const phone = w.employers ? w.employers.phone : '';
+        const cleanPhone = (phone || '').replace(/-/g, '');
+        
+        const matchesSearch = (w.worker_name?.toLowerCase().includes(search)) || 
+                              (w.country?.toLowerCase().includes(search)) || 
+                              (farmName.toLowerCase().includes(search)) ||
+                              (cleanPhone.includes(cleanSearch));
+                              
+        const matchesCountry = !country || w.country === country;
+        const matchesStatus = !status || w.status === status;
+        return matchesSearch && matchesCountry && matchesStatus;
+    });
+
+    const tbody = document.getElementById('worker-main-tbody');
+    if (tbody) {
+        tbody.innerHTML = filtered.map(w => `
+            <tr>
+                <td><b class="clickable-link" onclick="showWorkerDetail(${w.id})">${w.worker_name}</b></td>
+                <td>${w.country || '-'}</td>
+                <td>${w.gender || '-'}</td>
+                <td>${w.birth_date || '-'}</td>
+                <td><span class="clickable-link" onclick="showEmployerDetail(${w.employer_id})">${w.employers?.farm_owner || '미배정'}</span></td>
+                <td>${w.employers?.phone || '-'}</td>
+                <td>${w.entry_date || '-'}</td>
+                <td>${w.expected_departure_date || '-'}</td>
+                <td><span class="badge-subtle ${w.status==='체류중'?'badge-staying':w.status==='이탈'?'badge-ital':'badge-done'}">${w.status}</span></td>
+                <td class="admin-only"><button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="openEditModal(${w.id})">수정</button></td>
+            </tr>
+        `).join('');
+    }
+}
+
+function renderAccommodations() { filterAccommodations(); }
+
+function filterAccommodations() {
+    const searchEl = document.getElementById('search-acc-input');
+    const search = searchEl ? searchEl.value.toLowerCase().trim() : '';
+    const cleanSearch = search.replace(/-/g, '');
+
+    const tbody = document.getElementById('acc-main-tbody');
+    if (tbody) {
+        tbody.innerHTML = allEmployers.filter(e => {
+            const cleanPhone = (e.phone || '').replace(/-/g, '');
+            return (e.farm_owner?.toLowerCase().includes(search)) || 
+                   (e.accommodation_address?.toLowerCase().includes(search)) ||
+                   (cleanPhone.includes(cleanSearch));
+        }).map(e => `
+            <tr>
+                <td><b class="clickable-link" onclick="showEmployerDetail(${e.id})">${e.farm_owner}</b></td>
+                <td>${e.phone || '-'}</td>
+                <td>${e.accommodation_address || '-'}</td>
+                <td>${e.farm_address || '-'}</td>
+                <td><span class="badge bg-light text-dark border">${allWorkers.filter(w => w.employer_id === e.id && w.status === '체류중').length}명 체류</span></td>
+                <td class="admin-only"><button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="openEditEmployerModal(${e.id})">수정</button></td>
+            </tr>
+        `).join('');
+    }
+}
+
+// ---------------- 근로자 수정 관련 함수 ----------------
+function openEditModal(workerId) {
+    const worker = allWorkers.find(w => w.id === workerId);
+    if (!worker) return;
+    document.getElementById('edit-worker-id').value = worker.id;
+    document.getElementById('edit-worker-name').value = worker.worker_name || '';
+    document.getElementById('edit-country').value = worker.country || '';
+    document.getElementById('edit-gender').value = worker.gender || 'M';
+    document.getElementById('edit-birth-date').value = worker.birth_date || '';
+    document.getElementById('edit-status').value = worker.status || '체류중';
+    document.getElementById('edit-expected-date').value = worker.expected_departure_date || '';
+    document.getElementById('edit-abscond-date').value = worker.abscond_date || '';
+
+    const datalist = document.getElementById('employerListOptions');
+    datalist.innerHTML = '<option value="미배정">' + allEmployers.map(e => `<option value="${e.farm_owner}">`).join('');
+    
+    const currentEmp = allEmployers.find(e => e.id === worker.employer_id);
+    document.getElementById('edit-employer-input').value = currentEmp ? currentEmp.farm_owner : '미배정';
+
+    new bootstrap.Modal(document.getElementById('editWorkerModal')).show();
+}
+
+function confirmWorkerEdit() {
+    if (!confirm('정말 이 근로자의 정보를 수정하시겠습니까?')) return;
+    saveWorkerEdit();
+}
+
+async function saveWorkerEdit() {
+    const id = document.getElementById('edit-worker-id').value;
+    const oldWorker = allWorkers.find(w => w.id == id);
+    if (!oldWorker) return;
+
+    const empInputVal = document.getElementById('edit-employer-input').value.trim();
+    let matchedEmployerId = null;
+    let newEmployerName = '미배정';
+    if (empInputVal && empInputVal !== '미배정') {
+        const found = allEmployers.find(e => e.farm_owner === empInputVal);
+        if (found) {
+            matchedEmployerId = found.id;
+            newEmployerName = found.farm_owner;
+        } else {
+            alert('입력하신 고용주(농가주)가 존재하지 않습니다. 정확히 입력해주세요.');
+            return;
+        }
+    }
+
+    const newName = document.getElementById('edit-worker-name').value;
+    const newCountry = document.getElementById('edit-country').value;
+    const newGender = document.getElementById('edit-gender').value;
+    const newBirth = document.getElementById('edit-birth-date').value || null;
+    const newStatus = document.getElementById('edit-status').value;
+    const newExpDate = document.getElementById('edit-expected-date').value || null;
+    const newAbsDate = document.getElementById('edit-abscond-date').value || null;
+
+    const oldEmpName = oldWorker.employers ? oldWorker.employers.farm_owner : '미배정';
+
+    // 변경된 세부 항목 감지하여 이력 문자열 생성
+    let changes = [];
+    if (oldWorker.worker_name !== newName) changes.push(`이름: ${oldWorker.worker_name} → ${newName}`);
+    if (oldWorker.country !== newCountry) changes.push(`국적: ${oldWorker.country || '-'} → ${newCountry || '-'}`);
+    if (oldWorker.gender !== newGender) changes.push(`성별: ${oldWorker.gender} → ${newGender}`);
+    if (oldWorker.birth_date !== newBirth) changes.push(`생년월일: ${oldWorker.birth_date || '-'} → ${newBirth || '-'}`);
+    if (oldEmpName !== newEmployerName) changes.push(`배정농가: ${oldEmpName} → ${newEmployerName}`);
+    if (oldWorker.status !== newStatus) changes.push(`상태: ${oldWorker.status} → ${newStatus}`);
+    if (oldWorker.expected_departure_date !== newExpDate) changes.push(`출국예정일: ${oldWorker.expected_departure_date || '-'} → ${newExpDate || '-'}`);
+    if (oldWorker.abscond_date !== newAbsDate) changes.push(`이탈일자: ${oldWorker.abscond_date || '-'} → ${newAbsDate || '-'}`);
+
+    if (changes.length === 0) {
+        alert('변경된 내용이 없습니다.');
+        return;
+    }
+
+    const nowStr = new Date().toLocaleString();
+    let existingHistory = [];
+    if (oldWorker.edit_history) {
+        try { existingHistory = JSON.parse(oldWorker.edit_history); } catch(e) {}
+    }
+    existingHistory.unshift({
+        time: nowStr,
+        modifier: '관리자',
+        from: changes.map(c => c.split(' → ')[0]).join(', '),
+        to: changes.join(' | ')
+    });
+
+    const { error } = await _supabase.from('workers').update({
+        worker_name: newName,
+        country: newCountry,
+        gender: newGender,
+        birth_date: newBirth,
+        employer_id: matchedEmployerId,
+        status: newStatus,
+        expected_departure_date: newExpDate,
+        abscond_date: newAbsDate,
+        edit_history: JSON.stringify(existingHistory)
+    }).eq('id', id);
+
+    if (error) { alert('수정 실패: ' + error.message); return; }
+    alert('근로자 정보가 성공적으로 수정되었습니다.');
+    bootstrap.Modal.getInstance(document.getElementById('editWorkerModal')).hide();
+    await fetchWorkers();
+}
+
+// ---------------- 고용주/숙소 수정 관련 함수 ----------------
+function openEditEmployerModal(empId) {
+    const emp = allEmployers.find(e => e.id === empId);
+    if (!emp) return;
+    document.getElementById('edit-employer-id').value = emp.id;
+    document.getElementById('edit-emp-owner').value = emp.farm_owner || '';
+    document.getElementById('edit-emp-phone').value = emp.phone || '';
+    document.getElementById('edit-emp-acc-addr').value = emp.accommodation_address || '';
+    document.getElementById('edit-emp-farm-addr').value = emp.farm_address || '';
+
+    new bootstrap.Modal(document.getElementById('editEmployerModal')).show();
+}
+
+function confirmEmployerEdit() {
+    if (!confirm('정말 이 농가(고용주)의 정보를 수정하시겠습니까?')) return;
+    saveEmployerEdit();
+}
+
+async function saveEmployerEdit() {
+    const id = document.getElementById('edit-employer-id').value;
+    const oldEmp = allEmployers.find(e => e.id == id);
+    if (!oldEmp) return;
+
+    const newOwner = document.getElementById('edit-emp-owner').value;
+    const newPhone = document.getElementById('edit-emp-phone').value;
+    const newAccAddr = document.getElementById('edit-emp-acc-addr').value;
+    const newFarmAddr = document.getElementById('edit-emp-farm-addr').value;
+
+    let changes = [];
+    if (oldEmp.farm_owner !== newOwner) changes.push(`농가주명: ${oldEmp.farm_owner} → ${newOwner}`);
+    if (oldEmp.phone !== newPhone) changes.push(`연락처: ${oldEmp.phone || '-'} → ${newPhone || '-'}`);
+    if (oldEmp.accommodation_address !== newAccAddr) changes.push(`숙소주소: ${oldEmp.accommodation_address || '-'} → ${newAccAddr || '-'}`);
+    if (oldEmp.farm_address !== newFarmAddr) changes.push(`농지주소: ${oldEmp.farm_address || '-'} → ${newFarmAddr || '-'}`);
+
+    if (changes.length === 0) {
+        alert('변경된 내용이 없습니다.');
+        return;
+    }
+
+    const nowStr = new Date().toLocaleString();
+    let existingHistory = [];
+    if (oldEmp.edit_history) {
+        try { existingHistory = JSON.parse(oldEmp.edit_history); } catch(e) {}
+    }
+    existingHistory.unshift({
+        time: nowStr,
+        modifier: '관리자',
+        from: changes.map(c => c.split(' → ')[0]).join(', '),
+        to: changes.join(' | ')
+    });
+
+    const { error } = await _supabase.from('employers').update({
+        farm_owner: newOwner,
+        phone: newPhone,
+        accommodation_address: newAccAddr,
+        farm_address: newFarmAddr,
+        edit_history: JSON.stringify(existingHistory)
+    }).eq('id', id);
+
+    if (error) { alert('수정 실패: ' + error.message); return; }
+    alert('농가(고용주) 정보가 성공적으로 수정되었습니다.');
+    bootstrap.Modal.getInstance(document.getElementById('editEmployerModal')).hide();
+    await fetchWorkers();
+}
+
+function resetFilters() { 
+    document.getElementById('search-input').value = ''; 
+    document.getElementById('filter-country').value = ''; 
+    document.getElementById('filter-status').value = ''; 
+    filterWorkers(); 
+}
+
+let countryChartObj = null;
+let statusChartObj = null;
+
+function renderCharts() {
+    const staying = allWorkers.filter(w => w.status === '체류중');
+    const countryCounts = {};
+    staying.forEach(w => countryCounts[w.country || '기타'] = (countryCounts[w.country || '기타'] || 0) + 1);
+
+    const countryCtx = document.getElementById('countryChart');
+    if (countryCtx) {
+        if (countryChartObj) countryChartObj.destroy();
+        countryChartObj = new Chart(countryCtx, {
+            type: 'doughnut',
+            data: { labels: Object.keys(countryCounts), datasets: [{ data: Object.values(countryCounts), backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#64748b'] }] },
+            options: { plugins: { legend: { position: 'bottom' } } }
+        });
+    }
+
+    const statusCtx = document.getElementById('statusChart');
+    if (statusCtx) {
+        if (statusChartObj) statusChartObj.destroy();
+        statusChartObj = new Chart(statusCtx, {
+            type: 'bar',
+            data: { labels: ['체류중', '이탈자', '출국완료'], datasets: [{ data: [staying.length, allWorkers.filter(w => w.status === '이탈').length, allWorkers.filter(w => w.status === '출국완료').length], backgroundColor: ['#10b981', '#ef4444', '#64748b'] }] },
+            options: { plugins: { legend: { display: false } } }
+        });
+    }
+}
+
+function parseExcelDate(val) {
+    if (!val) return null;
+    if (typeof val === 'number') {
+        const date = new Date((val - (25567 + 2)) * 86400 * 1000);
+        return isNaN(date.getTime()) ? null : date.toISOString().split('T')[0];
+    }
+    const str = String(val).trim();
+    const match = str.match(/\d{4}[.\-\/]\d{1,2}[.\-\/]\d{1,2}/);
+    if (match) {
+        const parts = match[0].replace(/[.\/]/g, '-').split('-');
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+    }
+    return null;
+}
+
+async function handleExcelUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, { type: 'array' });
+            
+            const workerSheetName = workbook.SheetNames.find(s => s.includes('3.') || s.includes('입국')) || workbook.SheetNames[0];
+            const workerSheet = workbook.Sheets[workerSheetName];
+            const rawData = XLSX.utils.sheet_to_json(workerSheet, { header: 1 });
+
+            let headerRowIndex = -1;
+            for (let i = 0; i < Math.min(10, rawData.length); i++) {
+                const rowStr = JSON.stringify(rawData[i] || []);
+                if (rowStr.includes('이름') || rowStr.includes('성명')) {
+                    headerRowIndex = i;
+                    break;
+                }
+            }
+
+            if (headerRowIndex === -1) { alert('엑셀에서 근로자 헤더(이름)를 찾지 못했습니다.'); return; }
+
+            const headers = rawData[headerRowIndex].map(h => String(h || '').trim().replace(/\s+/g, ''));
+            
+            const nameIdx = headers.findIndex(h => h.includes('이름') && !h.includes('농가주'));
+            const genderIdx = headers.findIndex(h => h.includes('성별'));
+            const countryIdx = headers.findIndex(h => h.includes('국적'));
+            const birthIdx = headers.findIndex(h => h.includes('생년월일') || h.includes('생일'));
+            const entryIdx = headers.findIndex(h => h.includes('입국일자'));
+            
+            const expOutIdx = headers.findIndex(h => h.includes('출국예정') || h.includes('예정일자') || h.includes('체류기간만료'));
+            const abscondIdx = headers.findIndex(h => h.includes('무단이탈') || h.includes('이탈일자'));
+            const actOutIdx = headers.findIndex(h => h.includes('출국일자') && !h.includes('예정'));
+            
+            const farmIdx = headers.findIndex(h => h.includes('농가주') || h.includes('대표자'));
+            const phoneIdx = headers.findIndex(h => h.includes('연락처') || h.includes('전화번호'));
+
+            const validRows = [];
+            for (let i = headerRowIndex + 1; i < rawData.length; i++) {
+                const row = rawData[i];
+                if (row && nameIdx !== -1 && row[nameIdx]) {
+                    const nameVal = String(row[nameIdx]).trim();
+                    if (nameVal && nameVal !== '이름' && nameVal.length > 1) validRows.push(row);
+                }
+            }
+
+            if (validRows.length === 0) { alert('유효한 데이터 행이 없습니다.'); return; }
+
+            const accSheetName = workbook.SheetNames.find(s => s.includes('숙소'));
+            const accMap = {};
+            if (accSheetName) {
+                const accSheet = workbook.Sheets[accSheetName];
+                const rawAccData = XLSX.utils.sheet_to_json(accSheet, { header: 1 });
+                if (rawAccData.length > 1) {
+                    const accHeaders = rawAccData[0].map(h => String(h || '').trim());
+                    const ownerIdx = accHeaders.findIndex(h => h.includes('고용주') || h.includes('농가주'));
+                    const accPhoneIdx = accHeaders.findIndex(h => h.includes('연락처'));
+                    const accAddrIdx = accHeaders.findIndex(h => h.includes('숙소'));
+                    const farmAddrIdx = accHeaders.findIndex(h => h.includes('농지'));
+
+                    for (let i = 1; i < rawAccData.length; i++) {
+                        const r = rawAccData[i];
+                        if (r && ownerIdx !== -1 && r[ownerIdx]) {
+                            const ownerName = String(r[ownerIdx]).trim();
+                            accMap[ownerName] = {
+                                phone: accPhoneIdx !== -1 ? String(r[accPhoneIdx] || '').trim() : null,
+                                accAddr: accAddrIdx !== -1 ? String(r[accAddrIdx] || '').trim() : null,
+                                farmAddr: farmAddrIdx !== -1 ? String(r[farmAddrIdx] || '').trim() : null,
+                            };
+                        }
+                    }
+                }
+            }
+
+            if (!confirm(`총 ${validRows.length}명의 데이터를 동기화하시겠습니까?`)) return;
+
+            await _supabase.from('workers').delete().neq('id', 0);
+            await _supabase.from('employers').delete().neq('id', 0);
+
+            const employerInfoMap = {};
+            validRows.forEach(r => {
+                const farmOwner = farmIdx !== -1 && r[farmIdx] ? String(r[farmIdx]).trim() : '미배정';
+                if (!employerInfoMap[farmOwner]) {
+                    employerInfoMap[farmOwner] = {
+                        farm_owner: farmOwner,
+                        phone: phoneIdx !== -1 && r[phoneIdx] ? String(r[phoneIdx]).trim() : (accMap[farmOwner]?.phone || null),
+                        accommodation_address: accMap[farmOwner]?.accAddr || null,
+                        farm_address: accMap[farmOwner]?.farmAddr || null
+                    };
+                }
+            });
+
+            await _supabase.from('employers').insert(Object.values(employerInfoMap));
+            const { data: empList } = await _supabase.from('employers').select('id, farm_owner');
+            const farmIdMap = {};
+            if (empList) empList.forEach(e => farmIdMap[e.farm_owner] = e.id);
+
+            const workerPayload = validRows.map((r, index) => {
+                const nameVal = String(r[nameIdx]).trim();
+                const birthVal = birthIdx !== -1 ? parseExcelDate(r[birthIdx]) || 'unknown' : 'unknown';
+                const uniqueCode = `W_${index + 1}_${nameVal}_${birthVal}`.replace(/\s+/g, '_');
+                const farmOwner = farmIdx !== -1 && r[farmIdx] ? String(r[farmIdx]).trim() : '미배정';
+                const rawExpStr = expOutIdx !== -1 ? String(r[expOutIdx] || '').trim() : '';
+                const rawAbscondStr = abscondIdx !== -1 ? String(r[abscondIdx] || '').trim() : '';
+                const rawActOutStr = actOutIdx !== -1 ? String(r[actOutIdx] || '').trim() : '';
+
+                const isItal = rawAbscondStr !== '' && rawAbscondStr !== 'undefined' && rawAbscondStr !== 'null';
+                const parsedAbscondDate = isItal ? parseExcelDate(rawAbscondStr) : null;
+                const parsedActualOut = parseExcelDate(rawActOutStr);
+                const parsedExpectedOut = isItal ? null : parseExcelDate(rawExpStr);
+
+                let status = '체류중';
+                if (isItal) status = '이탈';
+                else if (parsedActualOut) status = '출국완료';
+
+                return {
+                    worker_code: uniqueCode,
+                    source_key: uniqueCode,
+                    worker_name: nameVal,
+                    gender: genderIdx !== -1 ? String(r[genderIdx] || 'M').trim() : 'M',
+                    country: countryIdx !== -1 ? String(r[countryIdx] || '기타').trim() : '기타',
+                    birth_date: birthIdx !== -1 ? parseExcelDate(r[birthIdx]) : null,
+                    entry_date: entryIdx !== -1 ? parseExcelDate(r[entryIdx]) : null,
+                    expected_departure_date: parsedExpectedOut,
+                    actual_departure_date: parsedActualOut,
+                    abscond_date: parsedAbscondDate,
+                    employer_id: farmIdMap[farmOwner] || null,
+                    status: status,
+                    year: 2026
+                };
+            });
+
+            for (let i = 0; i < workerPayload.length; i += 50) {
+                await _supabase.from('workers').insert(workerPayload.slice(i, i + 50));
+            }
+
+            alert(`🎉 데이터 동기화 완료!`);
+            await fetchWorkers();
+        } catch (err) {
+            console.error(err);
+            alert('동기화 실패: ' + err.message);
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+</script>
+</body>
+</html>
