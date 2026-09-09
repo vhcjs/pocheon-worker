@@ -143,7 +143,6 @@
         <a href="#" onclick="switchTab('workers', event)"><i class="bi bi-people me-2"></i>근로자 현황</a>
         <a href="#" onclick="switchTab('accommodations', event)"><i class="bi bi-house-door me-2"></i>숙소 현황</a>
         <a href="#" onclick="switchTab('stats', event)"><i class="bi bi-bar-chart me-2"></i>통계 분석 (요약표/차트)</a>
-        <a href="admin.html" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right me-2"></i>위탁형 계절근로자 관리</a>
     </div>
 </div>
 
@@ -363,11 +362,12 @@
                 <table class="table table-bordered table-custom align-middle text-center mb-0">
                     <thead class="table-light">
                         <tr>
-                            <th class="text-nowrap fs-6" style="width: 22%;">읍·면·동 주소지</th>
+                            <th class="text-nowrap fs-6" style="width: 22%; cursor:pointer;" onclick="sortSummaryTable('townName')">읍·면·동 주소지 <i class="bi bi-arrow-down-up small text-muted"></i></th>
                             <th>국적 구성</th>
                             <th>성별 구성</th>
-                            <th class="text-nowrap">총 근로자 수</th>
-                            <th class="text-nowrap">고용 농가 수</th>
+                            <th class="text-nowrap" style="cursor:pointer;" onclick="sortSummaryTable('totalWorkers')">총 근로자 수 <i class="bi bi-arrow-down-up small text-muted"></i></th>
+                            <th class="text-nowrap" style="cursor:pointer;" onclick="sortSummaryTable('farms')">고용 농가 수 <i class="bi bi-arrow-down-up small text-muted"></i></th>
+                            <th class="text-nowrap">비율 (%)</th>
                         </tr>
                     </thead>
                     <tbody id="summary-table-tbody"></tbody>
@@ -455,22 +455,6 @@
             </div>
             <div class="col-md-6">
                 <div class="card-custom p-3 p-md-4">
-                    <h6 class="fw-bold mb-3 text-secondary"><i class="bi bi-bar-chart-fill me-2"></i>체류 상태별 인원 현황 (막대 차트)</h6>
-                    <div style="position: relative; height: 260px;">
-                        <canvas id="statusChart"></canvas>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="card-custom p-3 p-md-4">
-                    <h6 class="fw-bold mb-3 text-secondary"><i class="bi bi-geo-alt-fill me-2"></i>읍·면·동별 근로자 배정 분포 (가로 막대 차트)</h6>
-                    <div style="position: relative; height: 260px;">
-                        <canvas id="townChart"></canvas>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="card-custom p-3 p-md-4">
                     <h6 class="fw-bold mb-3 text-secondary"><i class="bi bi-person-lines-fill me-2"></i>연령대별 근로자 구성 (파이 차트)</h6>
                     <div style="position: relative; height: 260px;">
                         <canvas id="ageChart"></canvas>
@@ -482,6 +466,14 @@
                     <h6 class="fw-bold mb-3 text-secondary"><i class="bi bi-graph-up-arrow me-2"></i>월별 근로자 입국 추이 (라인 차트)</h6>
                     <div style="position: relative; height: 280px;">
                         <canvas id="entryTrendChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12">
+                <div class="card-custom p-3 p-md-4">
+                    <h6 class="fw-bold mb-3 text-secondary"><i class="bi bi-graph-down-arrow me-2"></i>월별 근로자 출국 추이 (라인 차트)</h6>
+                    <div style="position: relative; height: 280px;">
+                        <canvas id="departureTrendChart"></canvas>
                     </div>
                 </div>
             </div>
@@ -769,10 +761,9 @@ const KOREAN_HOLIDAYS_2026 = [
 ];
 
 let countryChartObj = null;
-let statusChartObj = null;
-let townChartObj = null;
 let ageChartObj = null;
 let entryTrendChartObj = null;
+let departureTrendChartObj = null;
 
 document.addEventListener('DOMContentLoaded', async function() {
     const calendarEl = document.getElementById('calendar');
@@ -871,6 +862,17 @@ function getCountryBadgeHtml(countryStr) {
     }
 }
 
+function getCountryOrderRank(countryStr) {
+    const c = (countryStr || '').trim();
+    if (c.includes('캄보디아') || c.toUpperCase().includes('CAMBODIA')) return 0;
+    if (c.includes('라오스') || c.toUpperCase().includes('LAOS')) return 1;
+    return 2;
+}
+
+function sortCountryEntries(entries) {
+    return entries.sort((a, b) => getCountryOrderRank(a[0]) - getCountryOrderRank(b[0]));
+}
+
 function extractTownAddress(fullAddress) {
     // 빈값·플레이스홀더는 미기재 (기존 '주소 미등록' 문자열이 '주소'로 잘리던 문제 수정)
     const displayed = formatAddressDisplay(fullAddress);
@@ -921,7 +923,8 @@ async function fetchWorkers() {
         if (yearBadge) yearBadge.innerText = `${selectedYear}년 자료`;
         applyYearFilter();
 
-        const countries = [...new Set(allWorkers.map(w => w.country).filter(Boolean))];
+        const countries = [...new Set(allWorkers.map(w => w.country).filter(Boolean))]
+            .sort((a, b) => getCountryOrderRank(a) - getCountryOrderRank(b));
         const countrySelect = document.getElementById('filter-country');
         if (countrySelect) {
             countrySelect.innerHTML = '<option value="">모든 국적</option>';
@@ -1167,8 +1170,7 @@ function getGenderCountrySubtext(workers) {
         const c = (w.country || '기타').trim() || '기타';
         countryCounts[c] = (countryCounts[c] || 0) + 1;
     });
-    const countryParts = Object.entries(countryCounts)
-        .sort((a, b) => b[1] - a[1])
+    const countryParts = sortCountryEntries(Object.entries(countryCounts))
         .map(([c, n]) => `${c} ${n}`);
     // 성별·국적 구분 기호 통일: " / "
     return {
@@ -1289,6 +1291,19 @@ function showFilteredCategoryModal(statusType, modalTitle) {
 
 /* ================= 엑셀 및 PDF 다운로드 기능 구현 ================= */
 /* ================= 종합 요약표 및 재배 종류별 국적 통계 ================= */
+let summarySortColumn = 'townName';
+let summarySortAsc = true;
+
+function sortSummaryTable(column) {
+    if (summarySortColumn === column) {
+        summarySortAsc = !summarySortAsc;
+    } else {
+        summarySortColumn = column;
+        summarySortAsc = true;
+    }
+    renderSummaryTable();
+}
+
 function renderSummaryTable() {
     // 1. 읍·면·동별 현황표
     const tbody1 = document.getElementById('summary-table-tbody');
@@ -1309,10 +1324,25 @@ function renderSummaryTable() {
             if (w.employer_id) townGroups[town].farms.add(w.employer_id);
         });
 
-        const rows = Object.values(townGroups).sort((a,b) => a.townName.localeCompare(b.townName, 'ko'));
+        const rows = Object.values(townGroups);
+        rows.sort((a, b) => {
+            let valA, valB;
+            if (summarySortColumn === 'totalWorkers') { valA = a.totalWorkers; valB = b.totalWorkers; }
+            else if (summarySortColumn === 'farms') { valA = a.farms.size; valB = b.farms.size; }
+            else { valA = a.townName; valB = b.townName; }
+
+            if (typeof valA === 'string') {
+                const cmp = valA.localeCompare(valB, 'ko');
+                return summarySortAsc ? cmp : -cmp;
+            }
+            return summarySortAsc ? valA - valB : valB - valA;
+        });
+
+        const townTotalSum = rows.reduce((s, g) => s + g.totalWorkers, 0) || 1;
         tbody1.innerHTML = rows.map(g => {
-            const countryStr = Object.entries(g.countries).map(([c, count]) => `${getCountryBadgeHtml(c)} <b>${count}명</b>`).join(' / ');
+            const countryStr = sortCountryEntries(Object.entries(g.countries)).map(([c, count]) => `${getCountryBadgeHtml(c)} <b>${count}명</b>`).join(' / ');
             const genderStr = `남 ${g.genders['남'] || 0}명, 여 ${g.genders['여'] || 0}명`;
+            const ratio = ((g.totalWorkers / townTotalSum) * 100).toFixed(1);
             return `
             <tr>
                 <td class="text-nowrap"><span class="town-text-large">${g.townName}</span></td>
@@ -1320,8 +1350,9 @@ function renderSummaryTable() {
                 <td class="text-nowrap">${genderStr}</td>
                 <td class="text-nowrap"><b class="fs-6 text-primary">${g.totalWorkers}명</b></td>
                 <td class="text-nowrap fw-bold">${g.farms.size}개소</td>
+                <td class="text-nowrap"><span class="badge bg-light text-dark border">${ratio}%</span></td>
             </tr>`;
-        }).join('') || '<tr><td colspan="5" class="text-muted py-3">데이터가 없습니다.</td></tr>';
+        }).join('') || '<tr><td colspan="6" class="text-muted py-3">데이터가 없습니다.</td></tr>';
     }
 
     // 2. 재배 종류(작물)별 고용 농가 수 및 국적별 인원 요약표
@@ -1344,7 +1375,7 @@ function renderSummaryTable() {
         const sortedCrops = Object.values(cropGroups).sort((a,b) => b.totalWorkers - a.totalWorkers);
         const cropSum = sortedCrops.reduce((s, c) => s + c.totalWorkers, 0) || 1;
         tbodyCrop.innerHTML = sortedCrops.map(c => {
-            const countryBreakdown = Object.entries(c.countries)
+            const countryBreakdown = sortCountryEntries(Object.entries(c.countries))
                 .map(([cnt, num]) => `${getCountryBadgeHtml(cnt)} <b>${num}명</b>`)
                 .join(' / ');
             const ratio = ((c.totalWorkers / cropSum) * 100).toFixed(1);
@@ -1373,7 +1404,7 @@ function renderSummaryTable() {
             else countryMap[c].female++;
         });
 
-        tbody2.innerHTML = Object.entries(countryMap).map(([c, d]) => {
+        tbody2.innerHTML = sortCountryEntries(Object.entries(countryMap)).map(([c, d]) => {
             const ratio = totalVal > 0 ? ((d.total / totalVal) * 100).toFixed(1) : 0;
             return `
             <tr>
@@ -1917,9 +1948,7 @@ function filterAccommodations() {
         tbody.innerHTML = filtered.map(e => {
             const stayingWorkers = allWorkers.filter(w => w.employer_id === e.id && w.status === '체류중');
             const stayingCountries = [...new Set(stayingWorkers.map(w => w.country).filter(Boolean))];
-            const countryOrder = c => c.includes('캄보디아') || c.toUpperCase().includes('CAMBODIA') ? 0
-                : c.includes('라오스') || c.toUpperCase().includes('LAOS') ? 1 : 2;
-            stayingCountries.sort((a, b) => countryOrder(a) - countryOrder(b));
+            stayingCountries.sort((a, b) => getCountryOrderRank(a) - getCountryOrderRank(b));
             const countryBadges = stayingCountries.map(c => getCountryBadgeHtml(c)).join(' ');
             return `
             <tr>
@@ -2126,57 +2155,27 @@ function resetFilters() {
 function renderCharts() {
     const staying = allWorkers.filter(w => w.status === '체류중');
     
-    // 1. 국적별 차트
+    // 1. 국적별 차트 (캄보디아, 라오스 순서로 통일)
     const countryCounts = {};
     staying.forEach(w => countryCounts[w.country || '기타'] = (countryCounts[w.country || '기타'] || 0) + 1);
+    const countryEntries = sortCountryEntries(Object.entries(countryCounts));
     const countryCtx = document.getElementById('countryChart');
     if (countryCtx) {
         if (countryChartObj) countryChartObj.destroy();
         countryChartObj = new Chart(countryCtx, {
             type: 'doughnut',
-            data: { labels: Object.keys(countryCounts), datasets: [{ data: Object.values(countryCounts), backgroundColor: ['#0284c7', '#d97706', '#10b981', '#ef4444', '#64748b'] }] },
+            data: { labels: countryEntries.map(e => e[0]), datasets: [{ data: countryEntries.map(e => e[1]), backgroundColor: ['#0284c7', '#d97706', '#10b981', '#ef4444', '#64748b'] }] },
             options: { plugins: { legend: { position: 'bottom' } }, responsive: true, maintainAspectRatio: false }
         });
     }
 
-    // 2. 체류 상태별 차트
-    const statusCtx = document.getElementById('statusChart');
-    if (statusCtx) {
-        if (statusChartObj) statusChartObj.destroy();
-        statusChartObj = new Chart(statusCtx, {
-            type: 'bar',
-            data: { 
-                labels: ['체류중', '이탈자', '출국완료'], 
-                datasets: [{ data: [staying.length, allWorkers.filter(w => w.status === '이탈').length, allWorkers.filter(w => w.status === '출국완료').length], backgroundColor: ['#10b981', '#ef4444', '#64748b'] }] 
-            },
-            options: { plugins: { legend: { display: false } }, responsive: true, maintainAspectRatio: false }
-        });
-    }
-
-    // 3. 읍·면·동별 근로자 배정 분포
-    const townCounts = {};
-    allWorkers.forEach(w => {
-        const fullAddr = w.employers?.employer_address || w.employers?.farm_address || w.employers?.accommodation_address || '';
-        const town = extractTownAddress(fullAddr);
-        townCounts[town] = (townCounts[town] || 0) + 1;
-    });
-    const townCtx = document.getElementById('townChart');
-    if (townCtx) {
-        if (townChartObj) townChartObj.destroy();
-        townChartObj = new Chart(townCtx, {
-            type: 'bar',
-            data: { labels: Object.keys(townCounts), datasets: [{ label: '근로자 수 (명)', data: Object.values(townCounts), backgroundColor: '#8b5cf6' }] },
-            options: { indexAxis: 'y', plugins: { legend: { display: false } }, responsive: true, maintainAspectRatio: false }
-        });
-    }
-
-    // 4. 연령대별 차트
-    const ageCounts = { '20대 이하': 0, '30대': 0, '40대': 0, '50대 이상': 0, '미상': 0 };
+    // 2. 연령대별 차트 (미상 제외)
+    const ageCounts = { '20대 이하': 0, '30대': 0, '40대': 0, '50대 이상': 0 };
     const currentYear = new Date().getFullYear();
     allWorkers.forEach(w => {
-        if (!w.birth_date) { ageCounts['미상']++; return; }
+        if (!w.birth_date) return;
         const birthYear = parseInt(w.birth_date.slice(0, 4));
-        if (isNaN(birthYear)) { ageCounts['미상']++; return; }
+        if (isNaN(birthYear)) return;
         const age = currentYear - birthYear;
         if (age < 30) ageCounts['20대 이하']++;
         else if (age < 40) ageCounts['30대']++;
@@ -2188,12 +2187,12 @@ function renderCharts() {
         if (ageChartObj) ageChartObj.destroy();
         ageChartObj = new Chart(ageCtx, {
             type: 'pie',
-            data: { labels: Object.keys(ageCounts), datasets: [{ data: Object.values(ageCounts), backgroundColor: ['#38bdf8', '#34d399', '#fbbf24', '#f87171', '#9ca3af'] }] },
+            data: { labels: Object.keys(ageCounts), datasets: [{ data: Object.values(ageCounts), backgroundColor: ['#38bdf8', '#34d399', '#fbbf24', '#f87171'] }] },
             options: { plugins: { legend: { position: 'bottom' } }, responsive: true, maintainAspectRatio: false }
         });
     }
 
-    // 5. 월별 입국 추이 차트
+    // 3. 월별 입국 추이 차트
     const monthlyEntry = {};
     allWorkers.forEach(w => {
         if (w.entry_date && w.entry_date.length >= 7) {
@@ -2214,6 +2213,36 @@ function renderCharts() {
                     data: sortedMonths.map(m => monthlyEntry[m]),
                     borderColor: '#0284c7',
                     backgroundColor: 'rgba(2, 132, 199, 0.1)',
+                    fill: true,
+                    tension: 0.3
+                }]
+            },
+            options: { responsive: true, maintainAspectRatio: false }
+        });
+    }
+
+    // 4. 월별 출국 추이 차트 (실제 출국일 기준, 입국추이와 동일한 형태)
+    const monthlyDeparture = {};
+    allWorkers.forEach(w => {
+        const dDate = w.actual_departure_date || (w.status === '출국완료' ? w.expected_departure_date : null);
+        if (dDate && dDate.length >= 7) {
+            const ym = dDate.slice(0, 7);
+            monthlyDeparture[ym] = (monthlyDeparture[ym] || 0) + 1;
+        }
+    });
+    const sortedDepartureMonths = Object.keys(monthlyDeparture).sort();
+    const departureCtx = document.getElementById('departureTrendChart');
+    if (departureCtx) {
+        if (departureTrendChartObj) departureTrendChartObj.destroy();
+        departureTrendChartObj = new Chart(departureCtx, {
+            type: 'line',
+            data: {
+                labels: sortedDepartureMonths.length > 0 ? sortedDepartureMonths : ['데이터 없음'],
+                datasets: [{
+                    label: '월별 출국 근로자 수',
+                    data: sortedDepartureMonths.map(m => monthlyDeparture[m]),
+                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
                     fill: true,
                     tension: 0.3
                 }]
